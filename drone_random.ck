@@ -1,16 +1,37 @@
-Std.rand(1);
+Std.srand(4);
 
 // Define constants
-20 => int MAX_PARTS;
+100 => int MAX_PARTS;
 
 // Create oscillators
-SawOsc drones[MAX_PARTS];
+SinOsc drones[MAX_PARTS];
 
 // Create lfos
 SinOsc lfos[MAX_PARTS];
 
 // Create filters
 LPF filters[MAX_PARTS];
+
+// The midi event
+MidiIn min;
+
+// The message for retrieving dat
+MidiMsg msg;
+
+// Reverb
+PRCRev reverb;
+
+// Setup osc spread
+1 => int oscSpread;
+
+// Last note
+0.0 => float lastNote;
+
+// Filter params
+0.0 => float filterFreq;
+100.0 => float filterMod;
+0.05 => float lfoSpread;
+0.01 => float lfoFreq;
 
 // Create drone
 fun void createDrone(float freq, float spread) {
@@ -25,12 +46,12 @@ fun void createDrone(float freq, float spread) {
 }
 
 // Modulate Filter (lfo)
-fun void modulateFilter(float filterBaseFreq, float filterModAmt) {
+fun void modulateFilter() {
     while(20::samp => now) {
         // Loop over lfos and update filters
         for(0 => int i; i < MAX_PARTS ; i++) {
             // Calc new frequency
-            (lfos[i].last() + 1) * filterModAmt + filterBaseFreq => float f;
+            (lfos[i].last() + 1) * filterMod + filterFreq => float f;
             
             // Set it
             filters[i].freq(f);
@@ -44,10 +65,9 @@ fun void init() {
     Gain gain => dac;
     gain.gain(0.8);
     
-    // Reverb
-    PRCRev reverb;
+    // Setup reverb
     reverb => gain;
-    reverb.mix(0.5);
+    reverb.mix(0.0);
     
     // Adjust gain of drone parts and attach to gain
     for(0 => int i; i < MAX_PARTS ; i++) {
@@ -57,7 +77,7 @@ fun void init() {
         // Init filter
         filters[i].Q(1);
         filters[i].gain(0.8);
-        filters[i].freq(0);
+        filters[i].freq(filterFreq);
         
         // Connect drone to filter
         drones[i] => filters[i] => reverb;
@@ -76,19 +96,94 @@ fun void initLfos(float lfoFreq, float lfoSpread) {
     }
 }
 
+// Map midi to 0-1
+fun float mapMidi(int val) {
+    val => float fval;
+    return fval / 127.0;
+}
+
+// Run midi commands
+fun void runMidi() {
+    min => now;
+
+    // Get the message(s)
+    while(10::ms => now) {
+        while(min.recv(msg)) {
+            <<< msg.data1, msg.data2, msg.data3 >>>;
+            
+            mapMidi(msg.data3) => float fd3;
+            
+            // CC
+            if(msg.data1 == 176) {
+                // Verb
+                if (msg.data2 == 73) {
+                    reverb.mix(fd3);
+                }
+                // Filter Q
+                else if (msg.data2 == 9) {
+                    for(0 => int i; i < MAX_PARTS ; i++) {
+                        filters[i].Q(fd3 * 20.0);
+                    }
+                }
+                // Osc spread
+                else if (msg.data2 == 7) {
+                    msg.data3 * 10 => oscSpread;
+                    createDrone(lastNote, oscSpread);
+                }
+                // Filter frequency
+                else if (msg.data2 == 72) {
+                    msg.data3 * 10 => filterFreq;
+                    <<< filterFreq >>>;
+                }
+                // Filter modulation
+                else if (msg.data2 == 74) {
+                    msg.data3 * 10 => filterMod;
+                    <<< filterMod >>>;
+                }
+                // Filter lfo speed
+                else if (msg.data2 == 71) {
+                    fd3 * 10 => lfoFreq;
+                    initLfos(lfoFreq, lfoSpread);
+                }
+                // Filter spread
+                else if (msg.data2 == 14) {
+                    fd3 => lfoSpread;
+                    initLfos(lfoFreq, lfoSpread);
+                }
+            }
+            // Midi note in
+            else if(msg.data1 == 144 && msg.data3 > 0) {
+                Std.mtof(msg.data2) => lastNote;
+                createDrone(lastNote, oscSpread);
+            }
+        }
+    }
+}
+
 // Start drone
-fun void start() {
+fun void start() {    
+    // Check for midi
+    if(!min.open(0)) {
+        me.exit();
+    }
+    
+    // Print out device that was opened
+    <<< "MIDI device:", min.num(), " -> ", min.name() >>>;
+    
     // Init main components
     init();
     
     // Init lfos
-    initLfos(0.1, 0.05);
+    initLfos(lfoFreq, lfoSpread);
 
     // Create drone
     createDrone(200.0, 1000.0);
         
     // Spork the modulation
-    spork~ modulateFilter(0.0, 100.0);
+    spork~ modulateFilter();
+    
+    // Spork the midi
+    spork~ runMidi();
     
     // Lets do this for a while
     1::day => now;
