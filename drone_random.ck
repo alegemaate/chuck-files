@@ -1,10 +1,10 @@
-Std.srand(4);
+Std.srand(100);
 
 // Define constants
-100 => int MAX_PARTS;
+40 => int MAX_PARTS;
 
 // Create oscillators
-SinOsc drones[MAX_PARTS];
+SawOsc drones[MAX_PARTS];
 
 // Create lfos
 SinOsc lfos[MAX_PARTS];
@@ -22,16 +22,16 @@ MidiMsg msg;
 PRCRev reverb;
 
 // Setup osc spread
-1 => int oscSpread;
+100 => int oscSpread;
 
 // Last note
-0.0 => float lastNote;
+400.0 => float lastNote;
 
 // Filter params
-0.0 => float filterFreq;
+100.0 => float filterFreq;
 100.0 => float filterMod;
-0.05 => float lfoSpread;
-0.01 => float lfoFreq;
+0.00 => float lfoSpread;
+0.05 => float lfoFreq;
 
 // Create drone
 fun void createDrone(float freq, float spread) {
@@ -107,7 +107,7 @@ fun void runMidi() {
     min => now;
 
     // Get the message(s)
-    while(10::ms => now) {
+    while(100::ms => now) {
         while(min.recv(msg)) {
             <<< msg.data1, msg.data2, msg.data3 >>>;
             
@@ -164,12 +164,11 @@ fun void runMidi() {
 fun void start() {    
     // Check for midi
     if(!min.open(0)) {
-        me.exit();
+        <<< "Warning, could not open midi. Starting anyways" >>>;
+    } else {
+        <<< "MIDI device:", min.num(), " -> ", min.name() >>>;
     }
-    
-    // Print out device that was opened
-    <<< "MIDI device:", min.num(), " -> ", min.name() >>>;
-    
+        
     // Init main components
     init();
     
@@ -177,7 +176,7 @@ fun void start() {
     initLfos(lfoFreq, lfoSpread);
 
     // Create drone
-    createDrone(200.0, 1000.0);
+    createDrone(lastNote, oscSpread);
         
     // Spork the modulation
     spork~ modulateFilter();
